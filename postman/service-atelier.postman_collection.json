@@ -1,0 +1,38 @@
+{
+  "info": {
+    "_postman_id": "bd173ce2-df55-4c12-8c28-a6f235ea9180",
+    "name": "Quali-Track - Service Atelier",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8081" },
+    { "key": "machineId", "value": "1" },
+    { "key": "materialId", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "Machines",
+      "item": [
+        { "name": "Valid - create machine", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"nom\":\"Machine Postman\",\"type\":\"DECOUPE\",\"cadenceHeure\":100.0,\"statut\":\"DISPONIBLE\"}" }, "url": "{{baseUrl}}/machines" } },
+        { "name": "Validation error", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"nom\":\"\",\"type\":\"DECOUPE\",\"cadenceHeure\":0,\"statut\":\"DISPONIBLE\"}" }, "url": "{{baseUrl}}/machines" } },
+        { "name": "404 - unknown machine", "request": { "method": "GET", "url": "{{baseUrl}}/machines/999999" } },
+        { "name": "List machines", "request": { "method": "GET", "url": "{{baseUrl}}/machines" } },
+        { "name": "Get machine", "request": { "method": "GET", "url": "{{baseUrl}}/machines/{{machineId}}" } },
+        { "name": "Update machine", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"nom\":\"Machine A1 modifiee\",\"type\":\"DECOUPE\",\"cadenceHeure\":120.0,\"statut\":\"DISPONIBLE\"}" }, "url": "{{baseUrl}}/machines/{{machineId}}" } },
+        { "name": "Delete machine", "request": { "method": "DELETE", "url": "{{baseUrl}}/machines/{{machineId}}" } }
+      ]
+    },
+    {
+      "name": "Raw materials",
+      "item": [
+        { "name": "Valid - create raw material", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"nom\":\"Matiere Postman\",\"fournisseur\":\"Fournisseur X\",\"stock\":50.0,\"unite\":\"kg\"}" }, "url": "{{baseUrl}}/matieres-premieres" } },
+        { "name": "Validation error", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"nom\":\"\",\"fournisseur\":\"Fournisseur X\",\"stock\":-1,\"unite\":\"kg\"}" }, "url": "{{baseUrl}}/matieres-premieres" } },
+        { "name": "404 - unknown raw material", "request": { "method": "GET", "url": "{{baseUrl}}/matieres-premieres/999999" } },
+        { "name": "List raw materials", "request": { "method": "GET", "url": "{{baseUrl}}/matieres-premieres" } },
+        { "name": "Get raw material", "request": { "method": "GET", "url": "{{baseUrl}}/matieres-premieres/{{materialId}}" } },
+        { "name": "Update raw material", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"nom\":\"Matiere modifiee\",\"fournisseur\":\"Fournisseur X\",\"stock\":100.0,\"unite\":\"kg\"}" }, "url": "{{baseUrl}}/matieres-premieres/{{materialId}}" } },
+        { "name": "Delete raw material", "request": { "method": "DELETE", "url": "{{baseUrl}}/matieres-premieres/{{materialId}}" } }
+      ]
+    }
+  ]
+}

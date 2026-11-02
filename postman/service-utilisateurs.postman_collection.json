@@ -1,0 +1,20 @@
+{
+  "info": {
+    "_postman_id": "857fe0d1-57bb-42ca-9fe4-b918651930e2",
+    "name": "Quali-Track - Service Utilisateurs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8084" },
+    { "key": "userId", "value": "1" }
+  ],
+  "item": [
+    { "name": "Valid - create user", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"nom\":\"Utilisateur Postman\",\"email\":\"postman@email.com\",\"role\":\"ADMIN\",\"actif\":true}" }, "url": "{{baseUrl}}/utilisateurs" } },
+    { "name": "Validation error", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"nom\":\"\",\"email\":\"invalid\",\"role\":\"ADMIN\",\"actif\":true}" }, "url": "{{baseUrl}}/utilisateurs" } },
+    { "name": "404 - unknown user", "request": { "method": "GET", "url": "{{baseUrl}}/utilisateurs/999999" } },
+    { "name": "List users", "request": { "method": "GET", "url": "{{baseUrl}}/utilisateurs" } },
+    { "name": "Get user", "request": { "method": "GET", "url": "{{baseUrl}}/utilisateurs/{{userId}}" } },
+    { "name": "Update user", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"nom\":\"Utilisateur modifie\",\"email\":\"user1@email.com\",\"role\":\"ADMIN\",\"actif\":true}" }, "url": "{{baseUrl}}/utilisateurs/{{userId}}" } },
+    { "name": "Delete user", "request": { "method": "DELETE", "url": "{{baseUrl}}/utilisateurs/{{userId}}" } }
+  ]
+}
