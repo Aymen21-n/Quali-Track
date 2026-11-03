@@ -11,5 +11,7 @@
     <modules>
         <module>service-atelier</module>
         <module>service-utilisateurs</module>
+        <module>eureka-server</module>
+        <module>gateway-service</module>
     </modules>
 </project>

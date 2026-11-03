@@ -123,44 +123,52 @@ classDiagram
 
 | Application | Rôle | Port |
 |---|---|---|
-| `api-gateway` | Point d'entrée unique, routage vers les services | 8080 |
-| `eureka-server` | Service Registry (découverte des services) | 8761 |
+| `gateway-service` | Point d'entrée unique, routage vers les services via Eureka | 8080 |
+| `eureka-server` (`service-registry`) | Service Registry (découverte des services) | 8761 |
 | `service-atelier` | Machines et matières premières | 8081 |
-| `service-production` | Lots de production, contrôles qualité (service principal) | 8082 |
-| `service-stock` | Produits finis et défauts | 8083 |
 | `service-utilisateurs` | Utilisateurs (contrôleurs qualité) | 8084 |
-| `service-notification` | Notifications au responsable de production *(à venir, jalon V5)* | 8085 |
 
 ```mermaid
 flowchart LR
     client([Client / Frontend]) <--> gw
 
     subgraph infra [Infrastructure]
-        gw["API Gateway<br/>:8080"]
-        eureka["Eureka Server<br/>:8761"]
+        gw["gateway-service<br/>API Gateway :8080"]
+        eureka["eureka-server<br/>service-registry :8761"]
     end
 
     subgraph metier [Services métier]
         atelier["service-atelier<br/>:8081"]
-        production["service-production<br/>:8082"]
-        stock["service-stock<br/>:8083"]
         utilisateurs["service-utilisateurs<br/>:8084"]
     end
 
-    notification["service-notification<br/>:8085<br/>(à venir, V5)"]
-
     gw --> atelier
-    gw --> production
-    gw --> stock
     gw --> utilisateurs
 
     gw -.-> eureka
     atelier -.-> eureka
-    production -.-> eureka
-    stock -.-> eureka
     utilisateurs -.-> eureka
 
-    style notification stroke-dasharray: 5 5
 ```
 
-Flèches pleines : routage des requêtes via la Gateway. Flèches en pointillés : enregistrement et découverte via Eureka.
+Flèches pleines : routage des requêtes par la Gateway, qui découvre les instances avec Eureka. Flèches en pointillés : enregistrement des services auprès d'Eureka.
+
+## Lancer le projet
+
+Depuis la racine du dépôt, démarrer les applications dans cet ordre, chacune dans un terminal séparé :
+
+1. `mvn spring-boot:run -pl eureka-server`
+2. `mvn spring-boot:run -pl service-atelier`
+3. `mvn spring-boot:run -pl service-utilisateurs`
+4. `mvn spring-boot:run -pl gateway-service`
+
+Le dashboard Eureka est disponible sur [http://localhost:8761](http://localhost:8761). Les services métier et la Gateway s'y enregistrent. La Gateway permet notamment d'appeler les services via la découverte :
+
+- [http://localhost:8080/service-atelier/machines](http://localhost:8080/service-atelier/machines)
+- [http://localhost:8080/service-utilisateurs/utilisateurs](http://localhost:8080/service-utilisateurs/utilisateurs)
+
+Pour utiliser les routes statiques (`/machines/**`, `/matieres-premieres/**` et `/utilisateurs/**`) au lieu du préfixe de découverte, démarrer la Gateway avec le profil `statique` :
+
+```shell
+mvn spring-boot:run -pl gateway-service "-Dspring-boot.run.profiles=statique"
+```
