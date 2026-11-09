@@ -2,6 +2,8 @@ package com.qualitrack.stock.service;
 
 import com.qualitrack.stock.entity.Defect;
 import com.qualitrack.stock.exception.RessourceIntrouvableException;
+import com.qualitrack.stock.feignClient.ProductionClient;
+import com.qualitrack.stock.feignClient.ProductionLotRequest;
 import com.qualitrack.stock.repository.DefectRepository;
 import org.springframework.stereotype.Service;
 
@@ -10,9 +12,11 @@ import java.util.List;
 @Service
 public class DefectService {
     private final DefectRepository repository;
+    private final ProductionClient productionClient;
 
-    public DefectService(DefectRepository repository) {
+    public DefectService(DefectRepository repository, ProductionClient productionClient) {
         this.repository = repository;
+        this.productionClient = productionClient;
     }
 
     public List<Defect> getAll() {
@@ -25,6 +29,13 @@ public class DefectService {
     }
 
     public Defect save(Defect entity) {
+        if (entity.getLotId() == null) {
+            throw new IllegalArgumentException("Lot invalide");
+        }
+        ProductionLotRequest lot = productionClient.getLotById(entity.getLotId());
+        if (lot == null || lot.getStatut() == null || (!"EN_CONTROLE".equalsIgnoreCase(lot.getStatut()) && !"REBUTE".equalsIgnoreCase(lot.getStatut()))) {
+            throw new IllegalArgumentException("Le lot associé doit être EN_CONTROLE ou REBUTE");
+        }
         return repository.saveAndFlush(entity);
     }
 
@@ -42,4 +53,3 @@ public class DefectService {
         repository.delete(getById(id));
     }
 }
-

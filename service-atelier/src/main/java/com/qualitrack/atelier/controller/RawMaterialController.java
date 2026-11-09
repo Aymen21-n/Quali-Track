@@ -1,6 +1,7 @@
 package com.qualitrack.atelier.controller;
 
 import com.qualitrack.atelier.dto.RawMaterialDto;
+import com.qualitrack.atelier.dto.StockUpdateDto;
 import com.qualitrack.atelier.entite.RawMaterial;
 import com.qualitrack.atelier.mapper.RawMaterialMapper;
 import com.qualitrack.atelier.service.RawMaterialService;
@@ -38,6 +39,10 @@ public class RawMaterialController {
         RawMaterialDto created = mapper.toDto(service.save(material));
         URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").buildAndExpand(created.getId()).toUri();
         return ResponseEntity.created(location).body(created);
+    }
+    @PatchMapping("/{id}/stock")
+    public ResponseEntity<RawMaterialDto> decrementStock(@PathVariable Long id, @Valid @RequestBody StockUpdateDto dto) {
+        return ResponseEntity.ok(mapper.toDto(service.decrementStock(id, dto.getQuantite())));
     }
     @PutMapping("/{id}")
     public ResponseEntity<RawMaterialDto> update(@PathVariable Long id, @Valid @RequestBody RawMaterialDto dto) {

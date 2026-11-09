@@ -39,6 +39,10 @@ public class MachineController {
         URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").buildAndExpand(created.getId()).toUri();
         return ResponseEntity.created(location).body(created);
     }
+    @PatchMapping("/{id}/statut")
+    public ResponseEntity<MachineDto> reserve(@PathVariable Long id, @RequestBody MachineDto dto) {
+        return ResponseEntity.ok(mapper.toDto(service.reserveMachine(id, dto.getStatut() != null ? dto.getStatut().name() : null)));
+    }
     @PutMapping("/{id}")
     public ResponseEntity<MachineDto> update(@PathVariable Long id, @Valid @RequestBody MachineDto dto) {
         return ResponseEntity.ok(mapper.toDto(service.modifier(id, mapper.toEntity(dto))));

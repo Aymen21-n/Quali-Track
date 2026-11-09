@@ -1,5 +1,6 @@
 package com.qualitrack.stock.controller;
 
+import com.qualitrack.stock.dto.FinishedGoodDetailDto;
 import com.qualitrack.stock.dto.FinishedGoodDto;
 import com.qualitrack.stock.entity.FinishedGood;
 import com.qualitrack.stock.mapper.FinishedGoodMapper;
@@ -33,6 +34,11 @@ public class FinishedGoodController {
         return ResponseEntity.ok(mapper.toDto(service.getById(id)));
     }
 
+    @GetMapping("/{id}/detail")
+    public ResponseEntity<FinishedGoodDetailDto> getDetail(@PathVariable Long id) {
+        return ResponseEntity.ok(service.getDetail(id));
+    }
+
     @PostMapping
     public ResponseEntity<FinishedGoodDto> create(@Valid @RequestBody FinishedGoodDto dto) {
         FinishedGood entity = mapper.toEntity(dto);
@@ -54,4 +60,3 @@ public class FinishedGoodController {
         return ResponseEntity.noContent().build();
     }
 }
-
