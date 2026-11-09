@@ -11,6 +11,8 @@
     <modules>
         <module>service-atelier</module>
         <module>service-utilisateurs</module>
+        <module>service-production</module>
+        <module>service-stock</module>
         <module>eureka-server</module>
         <module>config-server</module>
         <module>gateway-service</module>
