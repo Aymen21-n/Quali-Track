@@ -130,7 +130,7 @@ public class ProductionLotService {
         if (controleur.getActif() == null || !controleur.getActif()) {
             throw new IllegalArgumentException("Contrôleur invalide");
         }
-        if (controleur.getRole() != null && !"qualite".equalsIgnoreCase(controleur.getRole())) {
+        if (controleur.getRole() == null || !"CONTROLEUR_QUALITE".equalsIgnoreCase(controleur.getRole())) {
             throw new IllegalArgumentException("Contrôleur invalide");
         }
 

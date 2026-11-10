@@ -6,12 +6,12 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 
-@FeignClient(name = "service-atelier")
+@FeignClient(name = "service-atelier", contextId = "rawMaterialClient")
 public interface RawMaterialClient {
+
     @GetMapping("/matieres-premieres/{id}")
     RawMaterialDto getRawMaterialById(@PathVariable("id") Long id);
 
     @PatchMapping("/matieres-premieres/{id}/stock")
     RawMaterialDto decrementStock(@PathVariable("id") Long id, @RequestBody RawMaterialStockUpdateRequest request);
 }
-

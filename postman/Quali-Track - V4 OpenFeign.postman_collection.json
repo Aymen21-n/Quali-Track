@@ -1,0 +1,544 @@
+{
+  "info": {
+    "_postman_id": "f8c4db6b-3507-4a30-b7dc-e4f73f3b3309",
+    "name": "Quali-Track - V4 OpenFeign",
+    "description": "Collection V4 pour la communication synchrone avec OpenFeign. Les données du run dépendent du seed H2 rechargé au démarrage. Note: le seed actuel renvoie user 3 avec role CONTROLEUR_QUALITE mais actif=false ; la création valide attendue par le cas métier nécessite un contrôleur actif. L'API ne doit pas être modifiée.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "machineId", "value": "1" },
+    { "key": "controleurId", "value": "3" },
+    { "key": "adminId", "value": "1" },
+    { "key": "rawMaterialId", "value": "1" },
+    { "key": "lotKey", "value": "lot-initial" },
+    { "key": "lotId", "value": "1" },
+    { "key": "finishedGoodId", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "V4 - OpenFeign",
+      "description": "Séquence principale de validation de la création et de la consultation de lots avec OpenFeign. Un run complet doit exclure le dossier 'Manuel - service indisponible'. Les requêtes 1 à 5 doivent échouer avant toute réservation tant que la machine 1 reste DISPONIBLE dans le seed.",
+      "item": [
+        {
+          "name": "1. POST /service-production/lots/new - rawMaterialId 9999 => 404",
+          "description": "Pré-requis : machineId toujours DISPONIBLE dans le seed ; cette requête doit échouer avant toute réservation et ne pas consommer la machine. Résultat attendu : 404 avec message 'Ressource externe introuvable'.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "idempotencyKey", "value": "{{idempotencyKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"machineId\": {{machineId}}, \"controleurId\": {{controleurId}}, \"lignes\": [{\"rawMaterialId\": 9999, \"quantite\": 1}]}"
+            },
+            "url": "{{baseUrl}}/service-production/lots/new"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.variables.set('idempotencyKey', 'lot-' + Date.now() + '-req1');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 404', function () { pm.response.to.have.status(404); });",
+                  "pm.test('Message is Ressource externe introuvable', function () { var jsonData = pm.response.json(); pm.expect(jsonData.message).to.eql('Ressource externe introuvable'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "2. POST /service-production/lots/new - Stock insuffisant => 400",
+          "description": "Pré-requis : machineId encore DISPONIBLE, la matière 1 existe et la requête doit être refusée avant réservation. Résultat attendu : 400 avec message commençant par 'Stock insuffisant'.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "idempotencyKey", "value": "{{idempotencyKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"machineId\": {{machineId}}, \"controleurId\": {{controleurId}}, \"lignes\": [{\"rawMaterialId\": {{rawMaterialId}}, \"quantite\": 999999}]}"
+            },
+            "url": "{{baseUrl}}/service-production/lots/new"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.variables.set('idempotencyKey', 'lot-' + Date.now() + '-req2');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 400', function () { pm.response.to.have.status(400); });",
+                  "pm.test('Message starts with Stock insuffisant', function () { var jsonData = pm.response.json(); pm.expect(jsonData.message).to.match(/^Stock insuffisant/); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "3. POST /service-production/lots/new - controleur invalide => 400",
+          "description": "Pré-requis : machineId encore DISPONIBLE ; le contrôleur est remplacé par {{adminId}} (ADMIN), ce qui doit être refusé avant réservation. Résultat attendu : 400, message 'Contrôleur invalide'.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "idempotencyKey", "value": "{{idempotencyKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"machineId\": {{machineId}}, \"controleurId\": {{adminId}}, \"lignes\": [{\"rawMaterialId\": {{rawMaterialId}}, \"quantite\": 1}]}"
+            },
+            "url": "{{baseUrl}}/service-production/lots/new"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.variables.set('idempotencyKey', 'lot-' + Date.now() + '-req3');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 400', function () { pm.response.to.have.status(400); });",
+                  "pm.test('Message is Contrôleur invalide', function () { var jsonData = pm.response.json(); pm.expect(jsonData.message).to.eql('Contrôleur invalide'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "4. POST /service-production/lots/new - machine inconnue => 404",
+          "description": "Pré-requis : machineId encore DISPONIBLE dans le seed ; la machine 9999 n'existe pas, donc la requête doit échouer avant réservation. Résultat attendu : 404, message 'Ressource externe introuvable'.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "idempotencyKey", "value": "{{idempotencyKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"machineId\": 9999, \"controleurId\": {{controleurId}}, \"lignes\": [{\"rawMaterialId\": {{rawMaterialId}}, \"quantite\": 1}]}"
+            },
+            "url": "{{baseUrl}}/service-production/lots/new"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.variables.set('idempotencyKey', 'lot-' + Date.now() + '-req4');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 404', function () { pm.response.to.have.status(404); });",
+                  "pm.test('Message is Ressource externe introuvable', function () { var jsonData = pm.response.json(); pm.expect(jsonData.message).to.eql('Ressource externe introuvable'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "5. POST /service-production/lots/new - header idempotencyKey absent => 400",
+          "description": "Pré-requis : machineId toujours DISPONIBLE ; aucune clé d'idempotence transmise. Résultat attendu : 400, validation du header sans réservation.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"machineId\": {{machineId}}, \"controleurId\": {{controleurId}}, \"lignes\": [{\"rawMaterialId\": {{rawMaterialId}}, \"quantite\": 1}]}"
+            },
+            "url": "{{baseUrl}}/service-production/lots/new"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 400', function () { pm.response.to.have.status(400); });",
+                  "pm.test('Message is Validation failed', function () { var jsonData = pm.response.json(); pm.expect(jsonData.message).to.eql('Validation failed'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "6. POST /service-production/lots/new - création valide => 201 + sauvegarde lotId",
+          "description": "Pré-requis : la machine 1 et la matière 1 doivent être disponibles dans le seed. La requête doit réserver la machine et décrémenter le stock. Résultat attendu : 201, statut EN_PRODUCTION ; sauvegarde de l'id dans {{lotId}}.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "idempotencyKey", "value": "{{lotKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"machineId\": {{machineId}}, \"controleurId\": {{controleurId}}, \"lignes\": [{\"rawMaterialId\": {{rawMaterialId}}, \"quantite\": 1}]}"
+            },
+            "url": "{{baseUrl}}/service-production/lots/new"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.collectionVariables.set('lotKey', 'lot-' + Date.now());",
+                  "pm.variables.set('idempotencyKey', pm.collectionVariables.get('lotKey'));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', function () { pm.response.to.have.status(201); });",
+                  "pm.test('Lot status is EN_PRODUCTION', function () { var jsonData = pm.response.json(); pm.expect(jsonData.statut).to.eql('EN_PRODUCTION'); });",
+                  "var jsonData = pm.response.json(); pm.collectionVariables.set('lotId', jsonData.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "7. POST /service-production/lots/new - même lotKey => 400",
+          "description": "Pré-requis : exécuter après la requête 6 avec la même clé {{lotKey}}. Résultat attendu : 400, message 'Opération déjà traitée'.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "idempotencyKey", "value": "{{lotKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"machineId\": {{machineId}}, \"controleurId\": {{controleurId}}, \"lignes\": [{\"rawMaterialId\": {{rawMaterialId}}, \"quantite\": 1}]}"
+            },
+            "url": "{{baseUrl}}/service-production/lots/new"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.variables.set('idempotencyKey', pm.collectionVariables.get('lotKey'));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 400', function () { pm.response.to.have.status(400); });",
+                  "pm.test('Message is Opération déjà traitée', function () { var jsonData = pm.response.json(); pm.expect(jsonData.message).to.eql('Opération déjà traitée'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "8. POST /service-production/lots/new - même machine après réservation => 400",
+          "description": "Pré-requis : après la requête 6, la machineId 1 est RESERVEE et ne doit plus être réutilisée. La nouvelle clé est unique mais la machine est déjà réservée. Résultat attendu : 400, message 'Machine indisponible'.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "idempotencyKey", "value": "{{idempotencyKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"machineId\": {{machineId}}, \"controleurId\": {{controleurId}}, \"lignes\": [{\"rawMaterialId\": {{rawMaterialId}}, \"quantite\": 1}]}"
+            },
+            "url": "{{baseUrl}}/service-production/lots/new"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.variables.set('idempotencyKey', 'lot-' + Date.now() + '-req8');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 400', function () { pm.response.to.have.status(400); });",
+                  "pm.test('Message is Machine indisponible', function () { var jsonData = pm.response.json(); pm.expect(jsonData.message).to.eql('Machine indisponible'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "9. GET /service-production/lots/{{lotId}} => 200",
+          "description": "Pré-requis : la requête 6 a créé un lot valide et sauvegardé son id dans {{lotId}}. Résultat attendu : 200, version locale du lot.",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/service-production/lots/{{lotId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Lot id is present', function () { var jsonData = pm.response.json(); pm.expect(jsonData.id).to.eql(Number(pm.collectionVariables.get('lotId'))); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "10. GET /service-production/lots/{{lotId}}/detail => 200",
+          "description": "Pré-requis : lot créé par la requête 6. Résultat attendu : 200 avec machineNom, controleurNom, controleurEmail et rawMaterialNom dans chaque ligne.",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/service-production/lots/{{lotId}}/detail"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Detail has enriched fields', function () { var jsonData = pm.response.json(); pm.expect(jsonData.machineNom).to.be.a('string'); pm.expect(jsonData.controleurNom).to.be.a('string'); pm.expect(jsonData.controleurEmail).to.be.a('string'); pm.expect(jsonData.lignes[0].rawMaterialNom).to.be.a('string'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "11. GET /service-production/lots/9999 => 404",
+          "description": "Pré-requis : aucun lot avec cette id. Résultat attendu : 404.",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/service-production/lots/9999"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 404', function () { pm.response.to.have.status(404); });",
+                  "pm.test('Message is not found', function () { var jsonData = pm.response.json(); pm.expect(jsonData.message).to.include('ProductionLot not found'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "12. Préparer et consulter un FinishedGood",
+          "description": "Pré-requis : lot créé par la requête 6 ; la séquence passe par les transitions EN_PRODUCTION -> EN_CONTROLE -> VALIDE, puis crée un FinishedGood sur le lot validé. La création ne doit se faire que sur un lot VALIDE.",
+          "item": [
+            {
+              "name": "12a. PATCH /service-production/lots/{{lotId}}/statut -> EN_CONTROLE",
+              "description": "Transition valide en code : EN_PRODUCTION -> EN_CONTROLE. Résultat attendu : 200.",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"statut\": \"EN_CONTROLE\"}"
+                },
+                "url": "{{baseUrl}}/service-production/lots/{{lotId}}/statut"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                      "pm.test('Status becomes EN_CONTROLE', function () { var jsonData = pm.response.json(); pm.expect(jsonData.statut).to.eql('EN_CONTROLE'); });"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "12b. PATCH /service-production/lots/{{lotId}}/statut -> VALIDE",
+              "description": "Transition valide en code : EN_CONTROLE -> VALIDE. Résultat attendu : 200.",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"statut\": \"VALIDE\"}"
+                },
+                "url": "{{baseUrl}}/service-production/lots/{{lotId}}/statut"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                      "pm.test('Status becomes VALIDE', function () { var jsonData = pm.response.json(); pm.expect(jsonData.statut).to.eql('VALIDE'); });"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "12c. POST /service-stock/finished-goods - créer FinishedGood => 201",
+              "description": "Pré-requis : lot associé en statut VALIDE. Résultat attendu : 201 ; stockage de l'id dans {{finishedGoodId}}.",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"lotId\": {{lotId}}, \"designation\": \"Produit fini V4\", \"quantite\": 1, \"dateEntree\": \"2026-11-10T00:00:00Z\"}"
+                },
+                "url": "{{baseUrl}}/service-stock/finished-goods"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status is 201', function () { pm.response.to.have.status(201); });",
+                      "var jsonData = pm.response.json(); pm.collectionVariables.set('finishedGoodId', jsonData.id);"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "response": []
+            },
+            {
+              "name": "12d. GET /service-stock/finished-goods/{{finishedGoodId}}/detail => 200",
+              "description": "Pré-requis : finishedGood créé sur lot VALIDE. Résultat attendu : 200 avec les informations enrichies du lot.",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/service-stock/finished-goods/{{finishedGoodId}}/detail"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status is 200', function () { pm.response.to.have.status(200); });",
+                      "pm.test('Detail payload includes lot status', function () { var jsonData = pm.response.json(); pm.expect(jsonData.lotId).to.eql(Number(pm.collectionVariables.get('lotId'))); pm.expect(jsonData.lotStatut).to.eql('VALIDE'); });"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Manuel - service indisponible",
+      "description": "Dossier manuel, à exécuter hors Runner : arrêter service-atelier avant d'envoyer, attendre 503, puis redémarrer le service. Ce dossier doit être exclu d'un run complet du Runner.",
+      "item": [
+        {
+          "name": "13. POST /service-production/lots/new - service-atelier indisponible => 503",
+          "description": "Arrêter service-atelier avant d'envoyer. Résultat attendu : 503 seulement. Le message varie entre 'Échec de communication avec un service' et 'Service ou instance indisponible'.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "idempotencyKey", "value": "{{idempotencyKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"machineId\": {{machineId}}, \"controleurId\": {{controleurId}}, \"lignes\": [{\"rawMaterialId\": {{rawMaterialId}}, \"quantite\": 1}]}"
+            },
+            "url": "{{baseUrl}}/service-production/lots/new"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "pm.variables.set('idempotencyKey', 'lot-' + Date.now() + '-manual-503');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 503', function () { pm.response.to.have.status(503); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ]
+}
+

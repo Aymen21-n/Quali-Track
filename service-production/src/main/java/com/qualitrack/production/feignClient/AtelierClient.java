@@ -6,12 +6,12 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 
-@FeignClient(name = "service-atelier")
+@FeignClient(name = "service-atelier", contextId = "atelierClient")
 public interface AtelierClient {
+
     @GetMapping("/machines/{id}")
     MachineDto getMachineById(@PathVariable("id") Long id);
 
     @PatchMapping("/machines/{id}/statut")
     MachineDto reserveMachine(@PathVariable("id") Long id, @RequestBody MachineReservationRequest request);
 }
-
