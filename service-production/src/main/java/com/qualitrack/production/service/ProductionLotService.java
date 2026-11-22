@@ -1,5 +1,6 @@
 package com.qualitrack.production.service;
 
+import com.qualitrack.production.dto.NotificationEmailDto;
 import com.qualitrack.production.dto.ProductionLotDtoFull;
 import com.qualitrack.production.dto.ProductionMaterialDtoFull;
 import com.qualitrack.production.entite.ProductionLot;
@@ -10,9 +11,15 @@ import com.qualitrack.production.exception.StatutTransitionException;
 import com.qualitrack.production.feignClient.*;
 import com.qualitrack.production.mapper.ProductionLotDetailMapper;
 import com.qualitrack.production.mapper.ProductionMaterialDetailMapper;
+import com.qualitrack.production.messaging.NotificationPublisher;
 import com.qualitrack.production.repository.ProductionLotRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.amqp.AmqpException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -23,12 +30,15 @@ import java.util.stream.Collectors;
 
 @Service
 public class ProductionLotService {
+    private static final Logger logger = LoggerFactory.getLogger(ProductionLotService.class);
+
     private final ProductionLotRepository repository;
     private final AtelierClient atelierClient;
     private final UtilisateursClient utilisateursClient;
     private final RawMaterialClient rawMaterialClient;
     private final ProductionLotDetailMapper detailMapper;
     private final ProductionMaterialDetailMapper materialDetailMapper;
+    private final NotificationPublisher notificationPublisher;
 
     private static final Map<StatutLot, Set<StatutLot>> VALID_TRANSITIONS = Map.of(
             StatutLot.EN_ATTENTE_RESSOURCES, Set.of(StatutLot.EN_PRODUCTION, StatutLot.ANNULE),
@@ -44,13 +54,15 @@ public class ProductionLotService {
                                 UtilisateursClient utilisateursClient,
                                 RawMaterialClient rawMaterialClient,
                                 ProductionLotDetailMapper detailMapper,
-                                ProductionMaterialDetailMapper materialDetailMapper) {
+                                ProductionMaterialDetailMapper materialDetailMapper,
+                                NotificationPublisher notificationPublisher) {
         this.repository = repository;
         this.atelierClient = atelierClient;
         this.utilisateursClient = utilisateursClient;
         this.rawMaterialClient = rawMaterialClient;
         this.detailMapper = detailMapper;
         this.materialDetailMapper = materialDetailMapper;
+        this.notificationPublisher = notificationPublisher;
     }
 
     public List<ProductionLot> getAll() {
@@ -153,7 +165,30 @@ public class ProductionLotService {
         for (ProductionMaterial ligne : lignes) {
             ligne.setLot(lot);
         }
-        return repository.saveAndFlush(lot);
+        ProductionLot savedLot = repository.saveAndFlush(lot);
+
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            NotificationEmailDto notification = new NotificationEmailDto();
+            notification.setDestinataire(controleur.getEmail());
+            notification.setObjet("Nouveau lot de production n° " + savedLot.getId());
+            notification.setContenu("ID du lot: " + savedLot.getId()
+                    + "\nMachine: " + machine.getId() + " - " + machine.getNom()
+                    + "\nStatut: " + savedLot.getStatut()
+                    + "\nDate: " + savedLot.getDateLot());
+
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        notificationPublisher.publier(notification);
+                    } catch (AmqpException ex) {
+                        logger.error("Impossible de publier la notification RabbitMQ du lot {}", savedLot.getId(), ex);
+                    }
+                }
+            });
+        }
+
+        return savedLot;
     }
 
     @Transactional(readOnly = true)
