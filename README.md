@@ -531,3 +531,147 @@ Le destinataire est l'email du contrôleur qualité actif utilisé pour le lot. 
 5. Le consommateur traite les messages différés : les emails apparaissent dans Mailpit. Les compteurs **Ready** et **Unacked** de `notifications.email` doivent revenir à `0`.
 
 La description détaillée des tests V5 se trouve dans `postman/Quali-Track - V5 Notification RabbitMQ.postman_collection.json`.
+
+## V6 - Résilience
+
+### Objectif
+
+Le jalon V6 protège les lectures de `service-production` vers `service-atelier` et `service-utilisateurs` avec Retry, Circuit Breaker, timeouts OpenFeign et cache Caffeine. Il distingue les consultations tolérantes des créations strictes afin d'éviter les réservations ou décréments involontaires.
+
+### Services et protection
+
+- `service-production` (`8082`) : appels de lecture protégés vers les machines, matières premières et utilisateurs.
+- `service-atelier` (`8081`) : instance Resilience4j `atelier-service`, utilisée pour les machines et matières premières.
+- `service-utilisateurs` (`8084`) : instance Resilience4j `utilisateurs-service`.
+- `cache Caffeine` dans `service-production` : caches `machines`, `rawMaterials` et `utilisateurs`, expiration après écriture de 10 minutes, taille maximale 1000.
+
+Les appels protégés concernent uniquement les lectures Feign :
+
+- création du lot : lecture machine, contrôleur et matières avec le repli strict ; une panne ou un circuit ouvert retourne `503` avec `ServiceExterneIndisponibleException`.
+- détail enrichi du lot : lecture machine, contrôleur et matières avec le repli tolérant ; le cache est utilisé, puis un DTO minimal peut être retourné pour préserver la consultation.
+- les erreurs métier normales ne sont pas transformées en `503` : `404` pour une machine ou matière inexistante, `400` pour stock insuffisant ou validation métier.
+
+La réservation machine `atelierClient.reserveMachine(...)` et le décrément stock `rawMaterialClient.decrementStock(...)` restent des appels Feign directs sans Retry ni Circuit Breaker. Cette séparation évite qu'un repli ou une répétition automatique puisse produire un double effet sur une écriture.
+
+### Paramètres appliqués
+
+- Timeouts OpenFeign : connexion `1000 ms`, lecture `2000 ms`.
+- Ordre des aspects : Retry `1`, Circuit Breaker `2`.
+- Retry `atelier-service` : 3 tentatives au maximum, attente 500 ms.
+- Retry `utilisateurs-service` : 3 tentatives au maximum, attente 500 ms.
+- Exceptions Retry : `feign.RetryableException` et `feign.FeignException$ServiceUnavailable`.
+- Circuit Breaker : fenêtre comptée de 6 appels, minimum 4 appels, seuil d'échec 50 %, passage automatique en HALF_OPEN activé, 3 appels autorisés en HALF_OPEN.
+- Temps d'ouverture : `10 s` pour `atelier-service`, `5 s` pour `utilisateurs-service`.
+- Aucun Bulkhead ni RateLimiter n'est configuré.
+
+Le serveur de configuration lit `config-repo/service-production.properties` depuis GitHub. Toute modification de ce fichier doit donc être **committée puis poussée** sur la branche `main` avant de redémarrer ou de recharger les services concernés.
+
+### Architecture V6
+
+```mermaid
+flowchart LR
+    client([Client / Frontend]) --> gw["gateway-service<br/>:8080"]
+
+    subgraph infra [Infrastructure]
+        gw
+        eureka["eureka-server<br/>:8761"]
+        config["config-server<br/>:8888"]
+        repo["config-repo<br/>GitHub"]
+    end
+
+    subgraph metier [Services métier]
+        atelier["service-atelier<br/>:8081"]
+        production["service-production<br/>:8082<br/>Cache Caffeine"]
+        users["service-utilisateurs<br/>:8084"]
+    end
+
+    gw --> production
+    gw --> atelier
+    gw --> users
+
+    production -->|"Feign: Retry + Circuit Breaker + timeouts<br/>atelier-service"| atelier
+    production -->|"Feign: Retry + Circuit Breaker + timeouts<br/>utilisateurs-service"| users
+
+    production -.-> eureka
+    atelier -.-> eureka
+    users -.-> eureka
+    gw -.-> eureka
+    production -. "configuration" .-> config
+    atelier -. "configuration" .-> config
+    users -. "configuration" .-> config
+    gw -. "configuration" .-> config
+    config -->|lit| repo
+```
+
+Flèches pleines : routage HTTP et appels Feign. Flèches Feign vers `service-atelier` et `service-utilisateurs` : Retry, Circuit Breaker et timeouts activés. `service-production` contient les caches Caffeine `machines`, `rawMaterials` et `utilisateurs`. Flèches pointillées : découverte Eureka et récupération de configuration.
+
+### Scripts de démonstration
+
+Depuis la racine du dépôt :
+
+```powershell
+.\scripts\v6\01-normal.ps1
+.\scripts\v6\02-service-indisponible.ps1
+.\scripts\v6\03-reprise.ps1
+.\scripts\v6\04-rejeu-idempotence.ps1
+.\scripts\v6\05-erreurs-metier.ps1
+```
+
+Les scripts cherchent eux-mêmes une machine avec `DISPONIBLE` via `GET http://localhost:8081/machines` et affichent le statut HTTP, le temps de réponse et le corps de chaque appel.
+
+#### 01-normal.ps1
+
+- Recherche une machine disponible.
+- Génère une `idempotencyKey` avec `[guid]::NewGuid()`.
+- Crée un lot avec `POST http://localhost:8082/lots/new` et attend `201`.
+- Appelle `GET http://localhost:8082/lots/{id}/detail` et attend `200`.
+- Résultat attendu : les champs `machineNom`, `controleurNom` et `controleurEmail` sont renseignés.
+
+#### 02-service-indisponible.ps1
+
+- Recherche et mémorise une machine disponible avant l'arrêt.
+- Demande d'arrêter `service-atelier`.
+- Appelle le détail du lot configuré par le paramètre `LotId`, dont la valeur par défaut est `1`, avec `GET /lots/{LotId}/detail`.
+- Résultat attendu : `200` depuis le cache ou avec des valeurs d'enrichissement tolérantes ; les retries peuvent rendre la réponse lente.
+- Lance 6 créations avec des clés uniques.
+- Les premières peuvent être lentes avec `503` ; les suivantes deviennent quasi instantanées après ouverture du circuit.
+
+#### 03-reprise.ps1
+
+- Demande de relancer `service-atelier` et d'attendre son réenregistrement Eureka.
+- Vérifie si une machine disponible existe. Après redémarrage d'une base H2 en mémoire, une machine peut avoir été perdue ; le script demande alors d'en créer une avec `POST http://localhost:8081/machines`.
+- Boucle jusqu'à 8 essais, à 10 secondes d'intervalle, avec une `idempotencyKey` unique à chaque création.
+- Résultat attendu : les essais initiaux peuvent retourner `503` pendant HALF_OPEN ou pendant l'attente Eureka, puis une création retourne `201`.
+
+#### 04-rejeu-idempotence.ps1
+
+- Compte les lots avant création.
+- Création avec la clé fixe `v6-idempotence-fixed` : attendu `201`.
+- Rejoue exactement la même requête deux fois avec la même clé : attendu `400` et message `Opération déjà traitée`.
+- Compte les lots après : attendu un seul lot ajouté par rapport au compte initial.
+
+#### 05-erreurs-metier.ps1
+
+- Machine inexistante : attendu `404`, avec `Ressource externe introuvable` ou erreur Feign correspondante.
+- Matière inexistante : attendu `404`, avec `Ressource externe introuvable` ou erreur Feign correspondante.
+- Stock insuffisant : attendu `400` avec `Stock insuffisant pour la matière ...`.
+- Résultat attendu : ces cas restent des erreurs métier propagées, pas des `503` causés par la résilience.
+
+### Idempotence
+
+La création utilise le endpoint réel `POST /lots/new` avec l'en-tête obligatoire `idempotencyKey`.
+
+```http
+POST http://localhost:8082/lots/new
+idempotencyKey: <clé unique>
+Content-Type: application/json
+
+{
+  "machineId": <machine DISPONIBLE>,
+  "controleurId": 3,
+  "lignes": [{"rawMaterialId": 1, "quantite": 1}]
+}
+```
+
+La vérification de l'idempotence précède toute validation distante et toute réservation. Rejouer une clé déjà enregistrée retourne `400` avec `Opération déjà traitée` sans créer de doublon.
+
