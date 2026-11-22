@@ -398,3 +398,136 @@ classDiagram
 
 La description détaillée de la collection Postman V4 est dans le dossier `postman/Quali-Track - V4 OpenFeign.postman_collection.json`.
 
+## V5 - Communication asynchrone (RabbitMQ + notification email)
+
+### Objectif
+
+Le jalon V5 ajoute une communication asynchrone après la création réussie d'un lot. `service-production` publie un `NotificationEmailDto` dans la file durable `notifications.email` après validation des réservations et commit de la transaction. `service-notification` consume le message, valide ses champs et transmet l'email à Mailpit.
+
+### Architecture V5
+
+```mermaid
+flowchart LR
+    client([Client / Frontend]) --> gw["gateway-service<br/>:8080"]
+
+    subgraph infra [Infrastructure]
+        gw
+        eureka["eureka-server<br/>:8761"]
+        config["config-server<br/>:8888"]
+        repo["config-repo<br/>GitHub"]
+        rabbit["RabbitMQ<br/>notifications.email<br/>AMQP :5672 / UI :15672"]
+        mailpit["Mailpit<br/>SMTP :1025 / UI :8025"]
+    end
+
+    subgraph metier [Services métier]
+        atelier["service-atelier<br/>:8081"]
+        production["service-production<br/>:8082"]
+        stock["service-stock<br/>:8083"]
+        users["service-utilisateurs<br/>:8084"]
+        notification["service-notification<br/>:8085"]
+    end
+
+    gw --> production
+    gw --> stock
+    gw --> atelier
+    gw --> users
+
+    production -->|Feign| atelier
+    production -->|Feign| users
+    stock -->|Feign| production
+
+    production -->|"publication JSON\nnotifications.email"| rabbit
+    rabbit -->|"consommation\nnotifications.email"| notification
+    notification -->|"SMTP"| mailpit
+
+    gw -.-> eureka
+    production -.-> eureka
+    stock -.-> eureka
+    atelier -.-> eureka
+    users -.-> eureka
+    notification -.-> eureka
+    gw -. "config" .-> config
+    production -. "config" .-> config
+    stock -. "config" .-> config
+    atelier -. "config" .-> config
+    users -. "config" .-> config
+    notification -. "config" .-> config
+    config -->|lit| repo
+```
+
+Flèches pleines : routage HTTP via la Gateway ou échanges métier/Email. Flèches pointillées : découverte Eureka et lecture de configuration. `service-notification` est enregistré dans Eureka et lit le Config Server, mais n'est pas exposé par la Gateway. La file durable utilisée est `notifications.email` dans l'exchange AMQP par défaut de RabbitMQ.
+
+### RabbitMQ et Mailpit avec Docker
+
+```shell
+docker run -d --name mailpit -p 127.0.0.1:1025:1025 -p 127.0.0.1:8025:8025 axllent/mailpit
+docker run -d --name rabbitmq -p 127.0.0.1:5672:5672 -p 127.0.0.1:15672:15672 -e RABBITMQ_DEFAULT_USER=tp -e RABBITMQ_DEFAULT_PASS=tp123 -v tp-rabbitmq-data:/var/lib/rabbitmq rabbitmq:4-management
+```
+
+Pour relancer les conteneurs :
+
+```shell
+docker start rabbitmq
+docker start mailpit
+```
+
+Pour simuler une panne :
+
+```shell
+docker stop rabbitmq
+docker stop mailpit
+```
+
+Interfaces disponibles :
+
+- RabbitMQ : [http://localhost:15672](http://localhost:15672) — utilisateur `tp`, mot de passe `tp123`
+- Mailpit : [http://localhost:8025](http://localhost:8025)
+
+Avant le démarrage, les fichiers `config-repo/service-notification.properties` et `config-repo/service-production.properties` doivent être commités et poussés sur la branche `main`, car le Config Server lit le dépôt GitHub configuré et non le dossier local.
+
+### Ordre de démarrage
+
+1. Docker : RabbitMQ et Mailpit.
+2. `mvn spring-boot:run -pl config-server`
+3. `mvn spring-boot:run -pl eureka-server`
+4. `mvn spring-boot:run -pl service-atelier`
+5. `mvn spring-boot:run -pl service-utilisateurs`
+6. `mvn spring-boot:run -pl service-production`
+7. `mvn spring-boot:run -pl service-stock`
+8. `mvn spring-boot:run -pl service-notification`
+9. `mvn spring-boot:run -pl gateway-service`
+
+### Déclenchement de la notification
+
+La création réussie d'un lot déclenche la notification :
+
+```http
+POST {{baseUrl}}/service-production/lots/new
+Content-Type: application/json
+idempotencyKey: <clé unique>
+
+{
+  "machineId": {{machineId}},
+  "controleurId": 3,
+  "lignes": [{"rawMaterialId": 1, "quantite": 1}]
+}
+```
+
+Le destinataire est l'email du contrôleur qualité actif utilisé pour le lot. La publication est effectuée après commit de la transaction.
+
+### Comportements attendus
+
+- Une création avec succès retourne `201`, même si RabbitMQ est arrêté : l'erreur RabbitMQ est seulement loguée par `service-production`.
+- Un message invalide reçu par `service-notification` fait 3 tentatives, puis est rejeté sans remise en file.
+- Rejouer exactement la même `idempotencyKey` retourne `400` avec `Opération déjà traitée` et ne publie aucun email.
+- `POST http://localhost:8085/notifications/email` retourne `204` pour un payload valide, `400` pour une validation invalide et `503` si Mailpit ou le serveur SMTP est indisponible.
+
+### Scénario de traitement différé
+
+1. Arrêter `service-notification`.
+2. Créer plusieurs lots avec des clés d'idempotence uniques ; chaque création retourne `201`.
+3. Ouvrir RabbitMQ Management : la file `notifications.email` doit apparaître avec le compteur **Ready** qui augmente.
+4. Redémarrer `service-notification`.
+5. Le consommateur traite les messages différés : les emails apparaissent dans Mailpit. Les compteurs **Ready** et **Unacked** de `notifications.email` doivent revenir à `0`.
+
+La description détaillée des tests V5 se trouve dans `postman/Quali-Track - V5 Notification RabbitMQ.postman_collection.json`.

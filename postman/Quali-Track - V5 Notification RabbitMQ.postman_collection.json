@@ -1,0 +1,192 @@
+{
+  "info": {
+    "_postman_id": "bde3a0dd-91e7-4c78-8a4d-7d55f4e8e421",
+    "name": "Quali-Track - V5 Notification RabbitMQ",
+    "description": "Collection V5 pour RabbitMQ et les notifications email. Exécuter le dossier principal avec un délai de 2000 ms entre les requêtes (a) et (b). Le dossier Manuel - pannes doit être exclu du run automatique.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "notifUrl", "value": "http://localhost:8085" },
+    { "key": "mailpitUrl", "value": "http://localhost:8025" },
+    { "key": "rabbitUrl", "value": "http://localhost:15672" },
+    { "key": "machineId", "value": "1" },
+    { "key": "v5MachineId", "value": "" },
+    { "key": "v5MachineName", "value": "" },
+    { "key": "controleurId", "value": "3" },
+    { "key": "rawMaterialId", "value": "1" },
+    { "key": "v5LotKey", "value": "" },
+    { "key": "lotId", "value": "" },
+    { "key": "mailpitBefore", "value": "0" }
+  ],
+  "item": [
+    {
+      "name": "V5 - Notification RabbitMQ",
+      "description": "Préparer une machine dédiée, créer un lot, vérifier Mailpit et tester les validations RabbitMQ/HTTP. Chaque création utilise une idempotencyKey unique.",
+      "item": [
+        {
+          "name": "0. POST /service-atelier/machines - créer machine V5 DISPONIBLE",
+          "description": "Crée une machine dédiée à V5 afin de ne pas réutiliser la machine 1 consommée par la requête 6 de la collection V4. L'id est enregistré dans {{v5MachineId}}.",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"nom\":\"{{v5MachineName}}\",\"type\":\"FRAISAGE\",\"cadenceHeure\":100.0,\"statut\":\"DISPONIBLE\"}" },
+            "url": "{{baseUrl}}/service-atelier/machines"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": { "exec": [ "var name = 'Machine V5-' + Date.now();", "pm.collectionVariables.set('v5MachineName', name);" ], "type": "text/javascript" }
+            },
+            {
+              "listen": "test",
+              "script": { "exec": [ "pm.test('Status is 201', function () { pm.response.to.have.status(201); });", "var jsonData = pm.response.json();", "pm.test('Machine is disponible', function () { pm.expect(jsonData.statut).to.eql('DISPONIBLE'); });", "pm.collectionVariables.set('v5MachineId', jsonData.id);", "pm.collectionVariables.set('machineId', jsonData.id);" ], "type": "text/javascript" }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "a. POST /service-production/lots/new - création réussie",
+          "description": "À exécuter avec un délai de 2000 ms avant la requête suivante dans le Collection Runner. Retour attendu : 201, puis sauvegarde de lotId et de la clé. Le compteur Mailpit avant l'envoi est enregistré dans {{mailpitBefore}}.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "idempotencyKey", "value": "{{v5LotKey}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\"machineId\":{{v5MachineId}},\"controleurId\":{{controleurId}},\"lignes\":[{\"rawMaterialId\":{{rawMaterialId}},\"quantite\":1}]}" },
+            "url": "{{baseUrl}}/service-production/lots/new"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": { "exec": [ "var key = 'v5-' + Date.now();", "pm.collectionVariables.set('v5LotKey', key);", "pm.sendRequest({ url: pm.collectionVariables.get('mailpitUrl') + '/api/v1/messages', method: 'GET' }, function (err, res) {", "  if (err || res.code !== 200) { pm.collectionVariables.set('mailpitBefore', '0'); }", "  else {", "    var json = res.json();", "    var total = json.total !== undefined ? json.total : (json.messages_count !== undefined ? json.messages_count : (json.count !== undefined ? json.count : (json.messages ? json.messages.length : 0)));", "    pm.collectionVariables.set('mailpitBefore', String(total));", "  }", "});" ], "type": "text/javascript" }
+            },
+            {
+              "listen": "test",
+              "script": { "exec": [ "pm.test('Status is 201', function () { pm.response.to.have.status(201); });", "var jsonData = pm.response.json();", "pm.test('Lot status is EN_PRODUCTION', function () { pm.expect(jsonData.statut).to.eql('EN_PRODUCTION'); });", "pm.collectionVariables.set('lotId', jsonData.id);" ], "type": "text/javascript" }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "b. GET /api/v1/messages - email reçu",
+          "description": "À exécuter après un délai de 2000 ms dans le Collection Runner. Retour attendu : 200, total supérieur au compteur avant l'envoi, dernier email ayant un sujet contenant 'Nouveau lot de production'.",
+          "request": { "method": "GET", "header": [], "url": "{{mailpitUrl}}/api/v1/messages" },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": [ "pm.test('Status is 200', function () { pm.response.to.have.status(200); });", "var jsonData = pm.response.json();", "var total = jsonData.total !== undefined ? jsonData.total : (jsonData.messages_count !== undefined ? jsonData.messages_count : (jsonData.count !== undefined ? jsonData.count : (jsonData.messages ? jsonData.messages.length : 0)));", "pm.test('Email count increased', function () { pm.expect(total).to.be.above(Number(pm.collectionVariables.get('mailpitBefore'))); });", "var messages = jsonData.messages || [];", "var last = messages.length ? messages[0] : null;", "pm.test('Subject contains Nouveau lot de production', function () {", "  var subject = last ? (last.Subject || last.subject || '') : '';", "  pm.expect(subject).to.include('Nouveau lot de production');", "});" ], "type": "text/javascript" }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "c. POST notif /notifications/email - valide",
+          "description": "Vérification locale directe du service-notification. Retour attendu : 204 No Content.",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"destinataire\":\"controleur.test@quali-track.local\",\"objet\":\"Test V5\",\"contenu\":\"Email de vérification V5\"}" },
+            "url": "{{notifUrl}}/notifications/email"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [ "pm.test('Status is 204', function () { pm.response.to.have.status(204); });" ], "type": "text/javascript" } }],
+          "response": []
+        },
+        {
+          "name": "d. Rejeu de lotKey - 400 sans nouvel email",
+          "description": "Rejoue exactement la clé créée par (a). Retour attendu : 400, message Opération déjà traitée, et aucun nouvel email dans Mailpit.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "idempotencyKey", "value": "{{v5LotKey}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\"machineId\":{{v5MachineId}},\"controleurId\":{{controleurId}},\"lignes\":[{\"rawMaterialId\":{{rawMaterialId}},\"quantite\":1}]}" },
+            "url": "{{baseUrl}}/service-production/lots/new"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": { "exec": [ "pm.sendRequest({ url: pm.collectionVariables.get('mailpitUrl') + '/api/v1/messages', method: 'GET' }, function (err, res) {", "  var json = !err && res.code === 200 ? res.json() : {};", "  var total = json.total !== undefined ? json.total : (json.messages_count !== undefined ? json.messages_count : (json.count !== undefined ? json.count : (json.messages ? json.messages.length : 0)));", "  pm.collectionVariables.set('mailpitBeforeRejeu', String(total));", "});" ], "type": "text/javascript" }
+            },
+            {
+              "listen": "test",
+              "script": { "exec": [ "pm.test('Status is 400', function () { pm.response.to.have.status(400); });", "pm.test('Message is Operation deja traitée', function () { var jsonData = pm.response.json(); pm.expect(jsonData.message).to.eql('Opération déjà traitée'); });", "pm.sendRequest({ url: pm.collectionVariables.get('mailpitUrl') + '/api/v1/messages', method: 'GET' }, function (err, res) {", "  pm.test('Email count did not increase after replay', function () {", "    var json = !err && res.code === 200 ? res.json() : {};", "    var total = json.total !== undefined ? json.total : (json.messages_count !== undefined ? json.messages_count : (json.count !== undefined ? json.count : (json.messages ? json.messages.length : 0)));", "    pm.expect(total).to.eql(Number(pm.collectionVariables.get('mailpitBeforeRejeu')));", "  });", "});" ], "type": "text/javascript" }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "e. POST notif - adresse mal formée",
+          "description": "Payload avec destinataire invalide. Retour attendu : 400.",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"destinataire\":\"adresse-mal-formee\",\"objet\":\"Test e\",\"contenu\":\"Contenu\"}" }, "url": "{{notifUrl}}/notifications/email" },
+          "event": [{ "listen": "test", "script": { "exec": [ "pm.test('Status is 400', function () { pm.response.to.have.status(400); });", "pm.test('Destinataire field is reported', function () { var jsonData = pm.response.json(); pm.expect(Object.keys(jsonData).join(' ')).to.include('destinataire'); });" ], "type": "text/javascript" } }],
+          "response": []
+        },
+        {
+          "name": "f. POST notif - objet vide",
+          "description": "Payload avec objet vide. Retour attendu : 400.",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"destinataire\":\"test@quali-track.local\",\"objet\":\"\",\"contenu\":\"Contenu\"}" }, "url": "{{notifUrl}}/notifications/email" },
+          "event": [{ "listen": "test", "script": { "exec": [ "pm.test('Status is 400', function () { pm.response.to.have.status(400); });", "pm.test('Objet field is reported', function () { var jsonData = pm.response.json(); pm.expect(Object.keys(jsonData).join(' ')).to.include('objet'); });" ], "type": "text/javascript" } }],
+          "response": []
+        },
+        {
+          "name": "g. RabbitMQ API - publier message invalide",
+          "description": "Publication directe via RabbitMQ Management avec basic auth tp/tp123. Retour attendu : 200 avec routed=true. Le listener doit rejeter après 3 tentatives et aucun email ne doit être ajouté.",
+          "request": {
+            "auth": { "type": "basic", "basic": [{ "key": "username", "value": "tp", "type": "string" }, { "key": "password", "value": "tp123", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"properties\":{\"content_type\":\"application/json\"},\"routing_key\":\"notifications.email\",\"payload\":\"{\\\"destinataire\\\":\\\"\\\",\\\"objet\\\":\\\"x\\\",\\\"contenu\\\":\\\"x\\\"}\",\"payload_encoding\":\"string\"}" },
+            "url": "{{rabbitUrl}}/api/exchanges/%2F/amq.default/publish"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": { "exec": [ "pm.sendRequest({ url: pm.collectionVariables.get('mailpitUrl') + '/api/v1/messages', method: 'GET' }, function (err, res) {", "  var json = !err && res.code === 200 ? res.json() : {};", "  var total = json.total !== undefined ? json.total : (json.messages_count !== undefined ? json.messages_count : (json.count !== undefined ? json.count : (json.messages ? json.messages.length : 0)));", "  pm.collectionVariables.set('mailpitBeforeInvalid', String(total));", "});" ], "type": "text/javascript" }
+            },
+            {
+              "listen": "test",
+              "script": { "exec": [ "pm.test('Status is 200', function () { pm.response.to.have.status(200); });", "pm.test('RabbitMQ reports routed=true', function () { var jsonData = pm.response.json(); pm.expect(jsonData.routed).to.eql(true); });", "pm.sendRequest({ url: pm.collectionVariables.get('mailpitUrl') + '/api/v1/messages', method: 'GET' }, function (err, res) {", "  pm.test('Invalid message did not increase email count', function () {", "    var json = !err && res.code === 200 ? res.json() : {};", "    var total = json.total !== undefined ? json.total : (json.messages_count !== undefined ? json.messages_count : (json.count !== undefined ? json.count : (json.messages ? json.messages.length : 0)));", "    pm.expect(total).to.eql(Number(pm.collectionVariables.get('mailpitBeforeInvalid')));", "  });", "});" ], "type": "text/javascript" }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Manuel - pannes",
+      "description": "Dossier à exclure du run automatique. Exécuter chaque cas manuellement, suivre les commandes docker décrites et redémarrer les composants avant le cas suivant.",
+      "item": [
+        {
+          "name": "h. RabbitMQ arrêté - création lot 201",
+          "description": "Exclure du Runner. 1) docker stop rabbitmq. 2) Envoyer cette requête. 3) docker start rabbitmq. Résultat attendu : 201; l'indisponibilité RabbitMQ est seulement loguée.",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "idempotencyKey", "value": "{{v5PanneRabbitKey}}" }], "body": { "mode": "raw", "raw": "{\"machineId\":{{v5MachineId}},\"controleurId\":{{controleurId}},\"lignes\":[{\"rawMaterialId\":{{rawMaterialId}},\"quantite\":1}]}" }, "url": "{{baseUrl}}/service-production/lots/new" },
+          "event": [
+            { "listen": "prerequest", "script": { "exec": [ "pm.variables.set('v5PanneRabbitKey', 'v5-rabbit-stop-' + Date.now());" ], "type": "text/javascript" } },
+            { "listen": "test", "script": { "exec": [ "pm.test('Status is 201 when RabbitMQ is stopped', function () { pm.response.to.have.status(201); });" ], "type": "text/javascript" } }
+          ],
+          "response": []
+        },
+        {
+          "name": "i. service-notification arrêté - traitement différé",
+          "description": "Exclure du Runner. 1) Arrêter service-notification. 2) Envoyer cette requête : attendu 201. 3) Observer Ready qui augmente dans RabbitMQ Management. 4) Redémarrer service-notification : l'email arrive dans Mailpit et Ready/Unacked retournent à 0.",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "idempotencyKey", "value": "{{v5PanneNotificationKey}}" }], "body": { "mode": "raw", "raw": "{\"machineId\":{{v5MachineId}},\"controleurId\":{{controleurId}},\"lignes\":[{\"rawMaterialId\":{{rawMaterialId}},\"quantite\":1}]}" }, "url": "{{baseUrl}}/service-production/lots/new" },
+          "event": [
+            { "listen": "prerequest", "script": { "exec": [ "pm.variables.set('v5PanneNotificationKey', 'v5-notification-stop-' + Date.now());" ], "type": "text/javascript" } },
+            { "listen": "test", "script": { "exec": [ "pm.test('Status is 201 while notification is stopped', function () { pm.response.to.have.status(201); });" ], "type": "text/javascript" } }
+          ],
+          "response": []
+        },
+        {
+          "name": "j. Mailpit arrêté - POST notif 503",
+          "description": "Exclure du Runner. 1) docker stop mailpit. 2) Envoyer cette requête. 3) docker start mailpit. Résultat attendu : 503 avec le message 'Impossible de transmettre l'email au serveur SMTP'.",
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\"destinataire\":\"controleur.test@quali-track.local\",\"objet\":\"Test panne Mailpit\",\"contenu\":\"Vérification du 503 SMTP\"}" }, "url": "{{notifUrl}}/notifications/email" },
+          "event": [{ "listen": "test", "script": { "exec": [ "pm.test('Status is 503', function () { pm.response.to.have.status(503); });", "pm.test('SMTP unavailability message', function () { var jsonData = pm.response.json(); pm.expect(jsonData.message).to.eql('Impossible de transmettre l\'email au serveur SMTP'); });" ], "type": "text/javascript" } }],
+          "response": []
+        }
+      ]
+    }
+  ]
+}
