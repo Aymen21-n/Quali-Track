@@ -81,6 +81,11 @@ public class GlobalExceptionHandler {
         return response(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred", request, List.of(), null);
     }
 
+    @ExceptionHandler(ServiceExterneIndisponibleException.class)
+    public ResponseEntity<ApiError> externalServiceUnavailable(ServiceExterneIndisponibleException ex, HttpServletRequest request) {
+        return response(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), request, List.of(), ex);
+    }
+
     private String formatFieldError(FieldError error) {
         return error.getField() + ": " + error.getDefaultMessage();
     }

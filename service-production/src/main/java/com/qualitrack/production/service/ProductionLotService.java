@@ -36,6 +36,7 @@ public class ProductionLotService {
     private final AtelierClient atelierClient;
     private final UtilisateursClient utilisateursClient;
     private final RawMaterialClient rawMaterialClient;
+    private final ResilientRequests resilientRequests;
     private final ProductionLotDetailMapper detailMapper;
     private final ProductionMaterialDetailMapper materialDetailMapper;
     private final NotificationPublisher notificationPublisher;
@@ -53,6 +54,7 @@ public class ProductionLotService {
                                 AtelierClient atelierClient,
                                 UtilisateursClient utilisateursClient,
                                 RawMaterialClient rawMaterialClient,
+                                ResilientRequests resilientRequests,
                                 ProductionLotDetailMapper detailMapper,
                                 ProductionMaterialDetailMapper materialDetailMapper,
                                 NotificationPublisher notificationPublisher) {
@@ -60,6 +62,7 @@ public class ProductionLotService {
         this.atelierClient = atelierClient;
         this.utilisateursClient = utilisateursClient;
         this.rawMaterialClient = rawMaterialClient;
+        this.resilientRequests = resilientRequests;
         this.detailMapper = detailMapper;
         this.materialDetailMapper = materialDetailMapper;
         this.notificationPublisher = notificationPublisher;
@@ -133,12 +136,12 @@ public class ProductionLotService {
             throw new IllegalArgumentException("Contrôleur invalide");
         }
 
-        MachineDto machine = atelierClient.getMachineById(lot.getMachineId());
+        MachineDto machine = resilientRequests.getMachineByIdStrict(lot.getMachineId());
         if (!"DISPONIBLE".equalsIgnoreCase(machine.getStatut())) {
             throw new IllegalArgumentException("Machine indisponible");
         }
 
-        UserDto controleur = utilisateursClient.getUserById(lot.getControleurId());
+        UserDto controleur = resilientRequests.getUtilisateurByIdStrict(lot.getControleurId());
         if (controleur.getActif() == null || !controleur.getActif()) {
             throw new IllegalArgumentException("Contrôleur invalide");
         }
@@ -148,7 +151,7 @@ public class ProductionLotService {
 
         List<ProductionMaterial> lignes = lot.getLignes() == null ? new ArrayList<>() : lot.getLignes();
         for (ProductionMaterial ligne : lignes) {
-            RawMaterialDto rawMaterial = rawMaterialClient.getRawMaterialById(ligne.getRawMaterialId());
+            RawMaterialDto rawMaterial = resilientRequests.getRawMaterialByIdStrict(ligne.getRawMaterialId());
             if (rawMaterial.getStock() == null || rawMaterial.getStock() < ligne.getQuantite()) {
                 throw new IllegalArgumentException("Stock insuffisant pour la matière " + rawMaterial.getNom());
             }
@@ -196,18 +199,18 @@ public class ProductionLotService {
         ProductionLot lot = getById(id);
         ProductionLotDtoFull dto = detailMapper.toDto(lot);
 
-        MachineDto machine = atelierClient.getMachineById(lot.getMachineId());
+        MachineDto machine = resilientRequests.getMachineByIdFb(lot.getMachineId());
         dto.setMachineNom(machine.getNom());
         dto.setMachineReference(machine.getType());
 
-        UserDto user = utilisateursClient.getUserById(lot.getControleurId());
+        UserDto user = resilientRequests.getUtilisateurByIdFb(lot.getControleurId());
         dto.setControleurNom(user.getNom());
         dto.setControleurEmail(user.getEmail());
 
         if (lot.getLignes() != null) {
             List<ProductionMaterialDtoFull> items = new ArrayList<>();
             for (ProductionMaterial line : lot.getLignes()) {
-                RawMaterialDto rawMaterial = rawMaterialClient.getRawMaterialById(line.getRawMaterialId());
+                RawMaterialDto rawMaterial = resilientRequests.getRawMaterialByIdFb(line.getRawMaterialId());
                 ProductionMaterialDtoFull item = materialDetailMapper.toDto(line);
                 item.setRawMaterialNom(rawMaterial.getNom());
                 item.setRawMaterialUnite(rawMaterial.getUnite());
